@@ -1,0 +1,36 @@
+# Build directories
+build/
+cmake-build-*/
+
+# Compiled binaries
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+test_database
+transaction_system
+
+# Database files
+test_db/
+transaction_db/
+*.db/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Other
+*.log
