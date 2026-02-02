@@ -1,36 +1,6 @@
-# Transaction Processing System
+## Transaction Processing System
 
 A multithreaded transaction processing layer implementing Optimistic Concurrency Control (OCC) and Conservative Two-Phase Locking (2PL).
-
-## Current Status: Step 1 - Database Layer ✓
-
-The database layer is implemented using RocksDB as the underlying key-value store.
-
-## Prerequisites
-
-- C++ compiler with C++17 support (GCC 7+, Clang 5+, or MSVC 2017+)
-- CMake 3.15 or higher
-- RocksDB library
-
-### Installing RocksDB
-
-**macOS (using Homebrew):**
-```bash
-brew install rocksdb
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install librocksdb-dev
-```
-
-**From source:**
-```bash
-git clone https://github.com/facebook/rocksdb.git
-cd rocksdb
-make shared_lib
-sudo make install
-```
 
 ## Build Instructions
 
@@ -70,7 +40,7 @@ make
     └── test_database.cpp
 ```
 
-## Database Layer API
+## Database Layer 
 
 The `Database` class provides the following operations:
 
@@ -83,17 +53,3 @@ The `Database` class provides the following operations:
 - `bool Clear()` - Removes all data
 - `size_t GetKeyCount()` - Returns number of keys
 
-## Next Steps
-
-- [ ] Step 2: Implement transaction layer (begin, read, write, commit)
-- [ ] Step 3: Build terminal UI for user commands
-- [ ] Step 4: Implement OCC and Conservative 2PL protocols
-- [ ] Step 5: Create workload definitions and execution engine
-- [ ] Step 6: Add performance measurement and statistics
-- [ ] Step 7: Generate performance graphs and report
-
-## Notes
-
-- RocksDB is thread-safe for concurrent reads and writes
-- The database layer stores values as strings; structured objects can be serialized (e.g., as JSON)
-- All data persists to disk in the specified database directory
