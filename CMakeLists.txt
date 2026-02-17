@@ -53,3 +53,9 @@ add_executable(transaction_system
     src/main.cpp
 )
 target_link_libraries(transaction_system workload concurrency metrics transaction database Threads::Threads)
+
+# Test executable for OCC
+add_executable(test_occ
+    tests/test_occ.cpp
+)
+target_link_libraries(test_occ concurrency transaction database Threads::Threads)
