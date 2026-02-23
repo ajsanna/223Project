@@ -21,7 +21,8 @@ class OCCManager : public TransactionManager {
 public:
     explicit OCCManager(Database& db);
 
-    Transaction Begin(const std::string& type_name) override;
+    Transaction Begin(const std::string& type_name,
+                      const std::vector<std::string>& keys = {}) override;
     std::optional<std::string> Read(Transaction& txn, const std::string& key) override;
     void Write(Transaction& txn, const std::string& key, const std::string& value) override;
     CommitResult Commit(Transaction& txn) override;

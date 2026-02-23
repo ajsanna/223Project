@@ -19,7 +19,7 @@ inline WorkloadTemplate MakeTransferTemplate() {
         "transfer",
         2,
         [](TransactionManager& mgr, const std::vector<std::string>& keys) -> CommitResult {
-            auto txn = mgr.Begin("transfer");
+            auto txn = mgr.Begin("transfer", keys);
 
             auto val_a = mgr.Read(txn, keys[0]);
             auto val_b = mgr.Read(txn, keys[1]);
@@ -44,7 +44,7 @@ inline WorkloadTemplate MakeBalanceCheckTemplate() {
         "balance_check",
         1,
         [](TransactionManager& mgr, const std::vector<std::string>& keys) -> CommitResult {
-            auto txn = mgr.Begin("balance_check");
+            auto txn = mgr.Begin("balance_check", keys);
 
             mgr.Read(txn, keys[0]);
 
@@ -59,7 +59,7 @@ inline WorkloadTemplate MakeWriteHeavyTemplate(int n) {
         "write_heavy",
         n,
         [n](TransactionManager& mgr, const std::vector<std::string>& keys) -> CommitResult {
-            auto txn = mgr.Begin("write_heavy");
+            auto txn = mgr.Begin("write_heavy", keys);
 
             for (int i = 0; i < n; i++) {
                 auto val = mgr.Read(txn, keys[i]);

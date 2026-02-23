@@ -28,6 +28,7 @@ target_link_libraries(transaction database)
 # Concurrency layer
 add_library(concurrency
     src/concurrency/occ_manager.cpp
+    src/concurrency/twopl_manager.cpp
 )
 target_link_libraries(concurrency transaction database)
 
@@ -59,3 +60,9 @@ add_executable(test_occ
     tests/test_occ.cpp
 )
 target_link_libraries(test_occ concurrency transaction database Threads::Threads)
+
+# Test executable for 2PL
+add_executable(test_2pl
+    tests/test_2pl.cpp
+)
+target_link_libraries(test_2pl concurrency transaction database Threads::Threads)
