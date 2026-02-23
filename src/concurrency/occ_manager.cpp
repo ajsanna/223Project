@@ -1,11 +1,13 @@
 #include "concurrency/occ_manager.h"
 #include <algorithm>
+#include <vector>
 
 namespace txn {
 
 OCCManager::OCCManager(Database& db) : db_(db) {}
 
-Transaction OCCManager::Begin(const std::string& type_name) {
+Transaction OCCManager::Begin(const std::string& type_name,
+                              const std::vector<std::string>& /*keys*/) {
     Transaction txn;
     txn.txn_id = ++txn_id_counter_;
     txn.type_name = type_name;

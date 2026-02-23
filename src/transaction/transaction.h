@@ -6,6 +6,7 @@
 #include <optional>
 #include <chrono>
 #include <cstdint>
+#include <vector>
 #include "database/database.h"
 
 namespace txn {
@@ -26,6 +27,8 @@ struct Transaction {
 
     std::unordered_map<std::string, std::string> read_set;
     std::unordered_map<std::string, std::string> write_set;
+
+    std::vector<std::string> lock_keys;  // keys held under 2PL (empty for OCC)
 
     std::chrono::steady_clock::time_point wall_start;
     int retry_count = 0;

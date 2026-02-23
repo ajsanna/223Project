@@ -1,8 +1,10 @@
 #include <iostream>
+#include <memory>
 #include <string>
 #include <map>
 #include "database/database.h"
 #include "concurrency/occ_manager.h"
+#include "concurrency/twopl_manager.h"
 #include "workload/workload_template.h"
 #include "workload/workload_executor.h"
 #include "metrics/metrics.h"
@@ -44,7 +46,7 @@ CLIArgs ParseArgs(int argc, char* argv[]) {
                       << "  --total-keys N       Total number of keys (default: 1000)\n"
                       << "  --hotset-size N      Size of hot key set (default: 10)\n"
                       << "  --hotset-prob P      Probability of picking hot key (default: 0.5)\n"
-                      << "  --protocol P         Concurrency protocol: occ (default: occ)\n"
+                      << "  --protocol P         Concurrency protocol: occ|2pl (default: occ)\n"
                       << "  --db-path PATH       Database directory path (default: transaction_db)\n";
             exit(0);
         }
@@ -81,11 +83,16 @@ int main(int argc, char* argv[]) {
     db.InitializeWithData(initial_data);
 
     // Create concurrency manager
-    if (args.protocol != "occ") {
+    std::unique_ptr<TransactionManager> mgr_ptr;
+    if (args.protocol == "occ") {
+        mgr_ptr = std::make_unique<OCCManager>(db);
+    } else if (args.protocol == "2pl") {
+        mgr_ptr = std::make_unique<TwoPLManager>(db);
+    } else {
         std::cerr << "Unknown protocol: " << args.protocol << std::endl;
         return 1;
     }
-    OCCManager mgr(db);
+    TransactionManager& mgr = *mgr_ptr;
 
     // Set up workload templates
     std::vector<WorkloadTemplate> templates;

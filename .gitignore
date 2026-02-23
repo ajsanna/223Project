@@ -32,5 +32,9 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 
+# Claude Code
+.claude/
+
 # Other
 *.log
+ProjectSpec.md
