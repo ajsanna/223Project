@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <random>
 #include "concurrency/transaction_manager.h"
 
 namespace txn {
@@ -11,6 +12,9 @@ namespace txn {
 struct WorkloadTemplate {
     std::string name;
     int num_input_keys;
+    // Optional: if set, used instead of KeySelector::SelectDistinctKeys to pick keys.
+    // Receives the thread-local RNG; nullptr means use the default selector.
+    std::function<std::vector<std::string>(std::mt19937&)> key_builder;
     std::function<CommitResult(TransactionManager&, const std::vector<std::string>&)> execute;
 };
 
@@ -18,6 +22,7 @@ inline WorkloadTemplate MakeTransferTemplate() {
     return {
         "transfer",
         2,
+        nullptr,
         [](TransactionManager& mgr, const std::vector<std::string>& keys) -> CommitResult {
             auto txn = mgr.Begin("transfer", keys);
 
@@ -43,6 +48,7 @@ inline WorkloadTemplate MakeBalanceCheckTemplate() {
     return {
         "balance_check",
         1,
+        nullptr,
         [](TransactionManager& mgr, const std::vector<std::string>& keys) -> CommitResult {
             auto txn = mgr.Begin("balance_check", keys);
 
@@ -58,6 +64,7 @@ inline WorkloadTemplate MakeWriteHeavyTemplate(int n) {
     return {
         "write_heavy",
         n,
+        nullptr,
         [n](TransactionManager& mgr, const std::vector<std::string>& keys) -> CommitResult {
             auto txn = mgr.Begin("write_heavy", keys);
 

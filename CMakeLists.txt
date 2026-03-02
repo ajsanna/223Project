@@ -40,6 +40,8 @@ add_library(metrics
 # Workload layer
 add_library(workload
     src/workload/workload_executor.cpp
+    src/workload/record.cpp
+    src/workload/input_parser.cpp
 )
 target_link_libraries(workload concurrency metrics Threads::Threads)
 

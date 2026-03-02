@@ -1,5 +1,6 @@
 #include "metrics/metrics.h"
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <cmath>
@@ -144,6 +145,86 @@ void MetricsCollector::PrintReport(double elapsed_s) {
         std::cout << "    P99 latency:   " << ComputePercentile(stat, 99) << " us\n";
     }
     std::cout << "========================================\n";
+}
+
+void MetricsCollector::WriteCsvRow(const std::string& path, const std::string& workload,
+                                    const std::string& protocol, int threads,
+                                    double hotset_prob, double elapsed_s) {
+    // Determine if we need to write a header (file doesn't exist yet or is empty).
+    bool write_header = false;
+    {
+        std::ifstream check(path);
+        write_header = !check.good();
+    }
+
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) return;
+
+    if (write_header) {
+        file << "workload,protocol,threads,hotset_prob,elapsed_s,"
+             << "total_commits,total_aborts,throughput_tps,abort_rate_pct,"
+             << "txn_type,type_commits,type_aborts,type_abort_pct,"
+             << "type_avg_latency_us,type_p50_us,type_p90_us,type_p99_us\n";
+    }
+
+    uint64_t total_commits = TotalCommits();
+    uint64_t total_aborts  = TotalAborts();
+    double throughput = (elapsed_s > 0.0) ? total_commits / elapsed_s : 0.0;
+    uint64_t total_all = total_commits + total_aborts;
+    double abort_rate  = (total_all > 0) ? 100.0 * total_aborts / total_all : 0.0;
+
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    file << std::fixed << std::setprecision(6);
+    for (auto& [type, stat] : stats_) {
+        file << workload    << ","
+             << protocol    << ","
+             << threads     << ","
+             << hotset_prob << ","
+             << elapsed_s   << ","
+             << total_commits << ","
+             << total_aborts  << ","
+             << throughput    << ","
+             << abort_rate    << ","
+             << type                          << ","
+             << stat.commits.load()           << ","
+             << stat.aborts.load()            << ","
+             << ComputeAbortPct(stat)         << ","
+             << ComputeAvgLatency(stat)       << ","
+             << ComputePercentile(stat, 50.0) << ","
+             << ComputePercentile(stat, 90.0) << ","
+             << ComputePercentile(stat, 99.0) << "\n";
+    }
+}
+
+void MetricsCollector::DumpLatencies(const std::string& path, const std::string& workload,
+                                      const std::string& protocol, int threads,
+                                      double hotset_prob) {
+    bool write_header = false;
+    {
+        std::ifstream check(path);
+        write_header = !check.good();
+    }
+
+    std::ofstream file(path, std::ios::app);
+    if (!file.is_open()) return;
+
+    if (write_header) {
+        file << "workload,protocol,threads,hotset_prob,txn_type,latency_us\n";
+    }
+
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    file << std::fixed << std::setprecision(3);
+    for (auto& [type, stat] : stats_) {
+        std::lock_guard<std::mutex> lat_lock(stat.latency_mutex);
+        for (double lat : stat.latencies_us) {
+            file << workload    << ","
+                 << protocol    << ","
+                 << threads     << ","
+                 << hotset_prob << ","
+                 << type        << ","
+                 << lat         << "\n";
+        }
+    }
 }
 
 } // namespace txn

@@ -31,6 +31,15 @@ public:
 
     void PrintReport(double elapsed_s);
 
+    // Appends one CSV row per txn_type to path (creates header on first write).
+    void WriteCsvRow(const std::string& path, const std::string& workload,
+                     const std::string& protocol, int threads, double hotset_prob,
+                     double elapsed_s);
+
+    // Dumps raw latency samples for distribution plots (appends; creates header on first write).
+    void DumpLatencies(const std::string& path, const std::string& workload,
+                       const std::string& protocol, int threads, double hotset_prob);
+
 private:
     std::mutex map_mutex_;
     std::unordered_map<std::string, PerTypeStat> stats_;

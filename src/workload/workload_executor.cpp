@@ -39,7 +39,9 @@ void WorkloadExecutor::WorkerThread(int thread_id) {
     for (int i = 0; i < config_.txns_per_thread; i++) {
         // Pick a random template
         auto& tmpl = config_.templates[template_dist(rng)];
-        auto keys = key_selector.SelectDistinctKeys(tmpl.num_input_keys);
+        std::vector<std::string> keys = tmpl.key_builder
+            ? tmpl.key_builder(rng)
+            : key_selector.SelectDistinctKeys(tmpl.num_input_keys);
 
         auto wall_start = std::chrono::steady_clock::now();
         int retries = 0;
