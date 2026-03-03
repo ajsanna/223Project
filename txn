@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+# txn — user-friendly CLI for the Transaction Processing System
+#
+# Usage: ./txn <command> [options]
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Terminal colors (disabled automatically if not a TTY)
+# ---------------------------------------------------------------------------
+if [[ -t 1 ]]; then
+    BOLD=$'\033[1m'
+    DIM=$'\033[2m'
+    RED=$'\033[0;31m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
+    CYAN=$'\033[0;36m'
+    BLUE=$'\033[0;34m'
+    RESET=$'\033[0m'
+else
+    BOLD="" DIM="" RED="" GREEN="" YELLOW="" CYAN="" BLUE="" RESET=""
+fi
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+info()    { echo "${CYAN}${BOLD}==>${RESET} $*"; }
+success() { echo "${GREEN}${BOLD} ✓${RESET} $*"; }
+warn()    { echo "${YELLOW}${BOLD} !${RESET} $*"; }
+error()   { echo "${RED}${BOLD}ERROR:${RESET} $*" >&2; }
+die()     { error "$*"; exit 1; }
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+BIN="${BUILD_DIR}/transaction_system"
+RESULTS_DIR="${PROJECT_ROOT}/results"
+
+# ---------------------------------------------------------------------------
+# cmd_help
+# ---------------------------------------------------------------------------
+cmd_help() {
+cat <<EOF
+${BOLD}Transaction Processing System — CLI${RESET}
+${DIM}Benchmarks OCC and Conservative 2PL concurrency protocols${RESET}
+
+${BOLD}USAGE${RESET}
+  ./txn <command> [options]
+
+${BOLD}COMMANDS${RESET}
+  ${CYAN}build${RESET}       Compile the project (runs CMake + make)
+  ${CYAN}run${RESET}         Run a single experiment with custom parameters
+  ${CYAN}bench${RESET}       Run the full 100-experiment parameter sweep
+  ${CYAN}plot${RESET}        Generate graphs from collected results
+  ${CYAN}clean${RESET}       Remove build artifacts and temporary databases
+  ${CYAN}help${RESET}        Show this help message
+
+${BOLD}RUN OPTIONS${RESET}
+  ${YELLOW}--workload${RESET}  1|2        Workload to run
+                           1 = bank transfers (500 accounts)
+                           2 = TPC-C-like new-order + payment (default: ${BOLD}1${RESET})
+  ${YELLOW}--protocol${RESET}  occ|2pl    Concurrency protocol (default: ${BOLD}occ${RESET})
+  ${YELLOW}--threads${RESET}   N          Worker threads (default: ${BOLD}4${RESET})
+  ${YELLOW}--txns${RESET}      N          Transactions per thread (default: ${BOLD}100${RESET})
+  ${YELLOW}--hotset-size${RESET} N        Size of the hot-key set (default: ${BOLD}10${RESET})
+  ${YELLOW}--hotset-prob${RESET} P        Probability of picking a hot key 0.0–1.0 (default: ${BOLD}0.5${RESET})
+  ${YELLOW}--csv${RESET}       PATH       Append metrics row to a CSV file
+  ${YELLOW}--latencies${RESET} PATH       Dump raw latency samples to a CSV file
+  ${YELLOW}--db-path${RESET}   PATH       Override the RocksDB directory path
+
+${BOLD}BENCH OPTIONS${RESET}
+  ${YELLOW}--build-dir${RESET} PATH       Override the build directory (default: ${BOLD}build/${RESET})
+
+${BOLD}PLOT OPTIONS${RESET}
+  ${YELLOW}--results-dir${RESET} PATH     Directory containing results.csv (default: ${BOLD}results/${RESET})
+
+${BOLD}EXAMPLES${RESET}
+  ${DIM}# First-time setup${RESET}
+  ./txn build
+
+  ${DIM}# Quick single run${RESET}
+  ./txn run --workload 1 --protocol occ --threads 4 --txns 200
+
+  ${DIM}# Compare protocols under high contention${RESET}
+  ./txn run --workload 1 --protocol occ  --hotset-prob 0.9 --csv results/my_run.csv
+  ./txn run --workload 1 --protocol 2pl  --hotset-prob 0.9 --csv results/my_run.csv
+
+  ${DIM}# Full benchmark sweep (≈10 min)${RESET}
+  ./txn bench
+
+  ${DIM}# Generate all graphs${RESET}
+  ./txn plot
+
+  ${DIM}# Wipe build + temp DBs${RESET}
+  ./txn clean
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# cmd_build
+# ---------------------------------------------------------------------------
+cmd_build() {
+    info "Configuring CMake..."
+    cmake -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -S "${PROJECT_ROOT}" \
+        2>&1 | grep -v "^--" || true
+
+    local jobs
+    jobs=$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+    info "Building with ${jobs} parallel jobs..."
+    cmake --build "${BUILD_DIR}" -j"${jobs}"
+
+    success "Build complete → ${BIN}"
+}
+
+# ---------------------------------------------------------------------------
+# cmd_run
+# ---------------------------------------------------------------------------
+cmd_run() {
+    require_binary
+
+    # Defaults
+    local workload=1 protocol=occ threads=4 txns=100
+    local hotset_size=10 hotset_prob=0.5
+    local csv="" latencies="" db_path=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --workload)     workload="$2";    shift 2 ;;
+            --protocol)     protocol="$2";    shift 2 ;;
+            --threads)      threads="$2";     shift 2 ;;
+            --txns)         txns="$2";        shift 2 ;;
+            --hotset-size)  hotset_size="$2"; shift 2 ;;
+            --hotset-prob)  hotset_prob="$2"; shift 2 ;;
+            --csv)          csv="$2";         shift 2 ;;
+            --latencies)    latencies="$2";   shift 2 ;;
+            --db-path)      db_path="$2";     shift 2 ;;
+            *) die "Unknown option: $1  (run './txn help' for usage)" ;;
+        esac
+    done
+
+    # Validate
+    [[ "$workload" == "1" || "$workload" == "2" ]] \
+        || die "--workload must be 1 or 2"
+    [[ "$protocol" == "occ" || "$protocol" == "2pl" ]] \
+        || die "--protocol must be 'occ' or '2pl'"
+    [[ "$threads" -ge 1 ]] 2>/dev/null \
+        || die "--threads must be a positive integer"
+    [[ "$txns" -ge 1 ]] 2>/dev/null \
+        || die "--txns must be a positive integer"
+
+    echo ""
+    echo "${BOLD}Run Configuration${RESET}"
+    echo "  Workload:      ${CYAN}${workload}${RESET}  $(workload_name "$workload")"
+    echo "  Protocol:      ${CYAN}${protocol}${RESET}"
+    echo "  Threads:       ${CYAN}${threads}${RESET}"
+    echo "  Txns/thread:   ${CYAN}${txns}${RESET}"
+    echo "  Hotset size:   ${CYAN}${hotset_size}${RESET}"
+    echo "  Hotset prob:   ${CYAN}${hotset_prob}${RESET}"
+    [[ -n "$csv" ]]        && echo "  CSV output:    ${CYAN}${csv}${RESET}"
+    [[ -n "$latencies" ]]  && echo "  Latencies:     ${CYAN}${latencies}${RESET}"
+    echo ""
+
+    local args=(
+        --workload        "$workload"
+        --protocol        "$protocol"
+        --threads         "$threads"
+        --txns-per-thread "$txns"
+        --hotset-size     "$hotset_size"
+        --hotset-prob     "$hotset_prob"
+    )
+    [[ -n "$db_path"   ]] && args+=(--db-path          "$db_path")
+    [[ -n "$csv"       ]] && args+=(--csv-output        "$csv")
+    [[ -n "$latencies" ]] && args+=(--dump-latencies    "$latencies")
+
+    cd "${PROJECT_ROOT}"
+    "${BIN}" "${args[@]}"
+}
+
+# ---------------------------------------------------------------------------
+# cmd_bench
+# ---------------------------------------------------------------------------
+cmd_bench() {
+    require_binary
+
+    local build_dir="${BUILD_DIR}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --build-dir) build_dir="$2"; shift 2 ;;
+            *) die "Unknown option: $1  (run './txn help' for usage)" ;;
+        esac
+    done
+
+    echo ""
+    echo "${BOLD}Full Benchmark Sweep${RESET}"
+    echo "  Workloads:    1, 2"
+    echo "  Protocols:    occ, 2pl"
+    echo "  Threads:      1, 2, 4, 8, 16"
+    echo "  Hotset probs: 0.1, 0.3, 0.5, 0.7, 0.9"
+    echo "  Total runs:   ${CYAN}100${RESET}  (≈10 minutes)"
+    echo ""
+
+    cd "${PROJECT_ROOT}"
+    bash "${PROJECT_ROOT}/scripts/run_experiments.sh" "$build_dir"
+
+    echo ""
+    success "Benchmark complete. Run ${BOLD}./txn plot${RESET} to generate graphs."
+}
+
+# ---------------------------------------------------------------------------
+# cmd_plot
+# ---------------------------------------------------------------------------
+cmd_plot() {
+    local results_dir="${RESULTS_DIR}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --results-dir) results_dir="$2"; shift 2 ;;
+            *) die "Unknown option: $1  (run './txn help' for usage)" ;;
+        esac
+    done
+
+    local csv="${results_dir}/results.csv"
+    [[ -f "$csv" ]] \
+        || die "No results found at ${csv}. Run './txn bench' first."
+
+    # Check for python3
+    command -v python3 &>/dev/null \
+        || die "python3 not found. Install Python 3 to generate plots."
+
+    # Check for pandas / matplotlib (non-fatal, give a helpful message)
+    if ! python3 -c "import pandas, matplotlib" 2>/dev/null; then
+        warn "Missing Python dependencies. Install them with:"
+        echo "       pip install pandas matplotlib"
+        exit 1
+    fi
+
+    info "Generating plots from ${csv}..."
+    cd "${PROJECT_ROOT}"
+    python3 "${PROJECT_ROOT}/scripts/plot_results.py"
+
+    success "Plots saved to ${results_dir}/plots/"
+    echo ""
+    echo "  Generated files:"
+    local plot_dir="${results_dir}/plots"
+    if [[ -d "$plot_dir" ]]; then
+        for f in "${plot_dir}"/*.png; do
+            [[ -f "$f" ]] && echo "    ${DIM}${f##*/}${RESET}"
+        done
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# cmd_clean
+# ---------------------------------------------------------------------------
+cmd_clean() {
+    echo ""
+    echo "${BOLD}Cleaning up...${RESET}"
+
+    cd "${PROJECT_ROOT}"
+
+    if [[ -d "${BUILD_DIR}" ]]; then
+        rm -rf "${BUILD_DIR}"
+        success "Removed build/"
+    fi
+
+    # Remove any temporary transaction databases
+    local removed=0
+    for d in db_w*_* tmp_db_w*; do
+        if [[ -d "$d" ]]; then
+            rm -rf "$d"
+            (( removed++ )) || true
+        fi
+    done
+    [[ $removed -gt 0 ]] && success "Removed ${removed} temporary database(s)"
+
+    echo ""
+    warn "Results in results/ were ${BOLD}not${RESET} deleted. Remove manually if needed."
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+require_binary() {
+    [[ -x "${BIN}" ]] \
+        || die "Binary not found. Run '${BOLD}./txn build${RESET}' first."
+}
+
+workload_name() {
+    case "$1" in
+        1) echo "${DIM}(bank transfers)${RESET}" ;;
+        2) echo "${DIM}(TPC-C new-order + payment)${RESET}" ;;
+        *) echo "" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+if [[ $# -eq 0 ]]; then
+    cmd_help
+    exit 0
+fi
+
+command="$1"; shift
+
+case "$command" in
+    build) cmd_build "$@" ;;
+    run)   cmd_run   "$@" ;;
+    bench) cmd_bench "$@" ;;
+    plot)  cmd_plot  "$@" ;;
+    clean) cmd_clean "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *)
+        error "Unknown command: '${command}'"
+        echo ""
+        echo "Run ${BOLD}./txn help${RESET} for a list of available commands."
+        exit 1
+        ;;
+esac
